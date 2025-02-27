@@ -351,7 +351,7 @@ contains
              if (grid_type < 4) then
                 if ( .not. Atm(n)%flagstruct%external_ic ) then
                    call init_case(Atm(n)%u,Atm(n)%v,Atm(n)%w,Atm(n)%pt,Atm(n)%delp,Atm(n)%q, &
-                        Atm(n)%phis, Atm(n)%ps,Atm(n)%pe, Atm(n)%peln,Atm(n)%pk,Atm(n)%pkz, &
+                        Atm(n)%phis, Atm(n)%ps, Atm(n)%ps_av, Atm(n)%pe, Atm(n)%peln,Atm(n)%pk,Atm(n)%pkz, &
                         Atm(n)%uc,Atm(n)%vc, Atm(n)%ua,Atm(n)%va,        &
                         Atm(n)%ak, Atm(n)%bk, Atm(n)%gridstruct, Atm(n)%flagstruct,&
                         Atm(n)%npx, Atm(n)%npy, npz, Atm(n)%ng, &

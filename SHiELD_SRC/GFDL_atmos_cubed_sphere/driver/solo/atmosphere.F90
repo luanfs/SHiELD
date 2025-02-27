@@ -263,7 +263,7 @@ contains
                      Atm(n)%ptop, Atm(n)%ks, Atm(n)%ncnst, Atm(n)%flagstruct%n_split,        &
                      Atm(n)%flagstruct%q_split, Atm(n)%u0, Atm(n)%v0, Atm(n)%u,       &
                      Atm(n)%v, Atm(n)%w, Atm(n)%delz, Atm(n)%flagstruct%hydrostatic,  &
-                     Atm(n)%pt, Atm(n)%delp, Atm(n)%q, Atm(n)%ps,                     &
+                     Atm(n)%pt, Atm(n)%delp, Atm(n)%q, Atm(n)%ps, Atm(n)%ps_av,       &
                      Atm(n)%pe, Atm(n)%pk, Atm(n)%peln, Atm(n)%pkz, Atm(n)%phis,      &
                      Atm(n)%q_con, Atm(n)%omga, Atm(n)%ua, Atm(n)%va, Atm(n)%uc, Atm(n)%vc, &
                      Atm(n)%ak, Atm(n)%bk, Atm(n)%mfx, Atm(n)%mfy,                    &
@@ -277,7 +277,7 @@ contains
                      Atm(n)%ptop, Atm(n)%ks, Atm(n)%ncnst, Atm(n)%flagstruct%n_split,        &
                      Atm(n)%flagstruct%q_split, Atm(n)%u0, Atm(n)%v0, Atm(n)%u,       &
                      Atm(n)%v, Atm(n)%w, Atm(n)%delz, Atm(n)%flagstruct%hydrostatic,  &
-                     Atm(n)%pt, Atm(n)%delp, Atm(n)%q, Atm(n)%ps,                     &
+                     Atm(n)%pt, Atm(n)%delp, Atm(n)%q, Atm(n)%ps, Atm(n)%ps_av,       &
                      Atm(n)%pe, Atm(n)%pk, Atm(n)%peln, Atm(n)%pkz, Atm(n)%phis,      &
                      Atm(n)%q_con, Atm(n)%omga, Atm(n)%ua, Atm(n)%va, Atm(n)%uc, Atm(n)%vc, &
                      Atm(n)%ak, Atm(n)%bk, Atm(n)%mfx, Atm(n)%mfy,                    &
@@ -324,7 +324,7 @@ contains
                      Atm(n)%ptop, Atm(n)%ks, Atm(n)%ncnst, Atm(n)%flagstruct%n_split,        &
                      Atm(n)%flagstruct%q_split, Atm(n)%u0, Atm(n)%v0, Atm(n)%u,       &
                      Atm(n)%v, Atm(n)%w, Atm(n)%delz, Atm(n)%flagstruct%hydrostatic,  &
-                     Atm(n)%pt, Atm(n)%delp, Atm(n)%q, Atm(n)%ps,                     &
+                     Atm(n)%pt, Atm(n)%delp, Atm(n)%q, Atm(n)%ps, Atm(n)%ps_av,       &
                      Atm(n)%pe, Atm(n)%pk, Atm(n)%peln, Atm(n)%pkz, Atm(n)%phis,      &
                      Atm(n)%q_con, Atm(n)%omga, Atm(n)%ua, Atm(n)%va, Atm(n)%uc, Atm(n)%vc, &
                      Atm(n)%ak, Atm(n)%bk, Atm(n)%mfx, Atm(n)%mfy,                    &
@@ -338,7 +338,7 @@ contains
                      Atm(n)%ptop, Atm(n)%ks, Atm(n)%ncnst, Atm(n)%flagstruct%n_split,        &
                      Atm(n)%flagstruct%q_split, Atm(n)%u0, Atm(n)%v0, Atm(n)%u,       &
                      Atm(n)%v, Atm(n)%w, Atm(n)%delz, Atm(n)%flagstruct%hydrostatic,  &
-                     Atm(n)%pt, Atm(n)%delp, Atm(n)%q, Atm(n)%ps,                     &
+                     Atm(n)%pt, Atm(n)%delp, Atm(n)%q, Atm(n)%ps, Atm(n)%ps_av,       &
                      Atm(n)%pe, Atm(n)%pk, Atm(n)%peln, Atm(n)%pkz, Atm(n)%phis,      &
                      Atm(n)%q_con, Atm(n)%omga, Atm(n)%ua, Atm(n)%va, Atm(n)%uc, Atm(n)%vc, &
                      Atm(n)%ak, Atm(n)%bk, Atm(n)%mfx, Atm(n)%mfy,                    &
@@ -392,8 +392,10 @@ contains
 
 !#######################################################################
 
-  subroutine atmosphere (Time)
+  subroutine atmosphere (Time, na, num_atmos_calls)
     type(time_type), intent(in) :: Time
+    integer, intent(inout) :: num_atmos_calls
+    integer, intent(inout) :: na
 
     real:: zvir
     real:: time_total
@@ -432,13 +434,13 @@ contains
             cp_air, zvir, Atm(n)%ptop, Atm(n)%ks, Atm(n)%ncnst, &
             Atm(n)%flagstruct%n_split, Atm(n)%flagstruct%q_split, &
             Atm(n)%u0, Atm(n)%v0, Atm(n)%u, Atm(n)%v, Atm(n)%w, Atm(n)%delz, &
-            Atm(n)%flagstruct%hydrostatic, Atm(n)%pt, Atm(n)%delp, Atm(n)%q, Atm(n)%ps, &
+            Atm(n)%flagstruct%hydrostatic, Atm(n)%pt, Atm(n)%delp, Atm(n)%q, Atm(n)%ps, Atm(n)%ps_av, &
             Atm(n)%pe, Atm(n)%pk, Atm(n)%peln, Atm(n)%pkz,             &
             Atm(n)%phis, Atm(n)%q_con, Atm(n)%omga, Atm(n)%ua, Atm(n)%va, Atm(n)%uc, Atm(n)%vc,  &
             Atm(n)%ak, Atm(n)%bk, Atm(n)%mfx, Atm(n)%mfy, Atm(n)%cx, Atm(n)%cy,    &
             Atm(n)%ze0, Atm(n)%flagstruct%hybrid_z, Atm(n)%gridstruct, Atm(n)%flagstruct, &
             Atm(n)%neststruct, Atm(n)%thermostruct, Atm(n)%idiag, Atm(n)%bd, Atm(n)%parent_grid, Atm(n)%domain, &
-            Atm(n)%inline_mp, Atm(n)%heat_source, Atm(n)%diss_est, time_total=time_total)
+            Atm(n)%inline_mp, Atm(n)%heat_source, Atm(n)%diss_est, time_total=time_total, num_atmos_calls=num_atmos_calls, na=na)
        call timing_off('FV_DYNAMICS')
 
     if (ngrids > 1 .and. (psc < p_split .or. p_split < 0)) then

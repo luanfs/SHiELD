@@ -129,7 +129,7 @@ module fv_diagnostics_mod
  integer :: id_dx, id_dy
  integer :: id_plev = 0
 
- real              :: vrange(2), vsrange(2), wrange(2), trange(2), slprange(2), rhrange(2), psrange(2), skrange(2)
+ real              :: vrange(2), vsrange(2), wrange(2), trange(2), slprange(2), rhrange(2), psrange(2), skrange(2), psavrange(2)
 
  !Fields needed for diagnostics
  real, allocatable :: w_mr(:)
@@ -234,9 +234,11 @@ contains
     slprange = (/800.,  1200./)  ! sea-level-pressure
     skrange  = (/ -10000000.0,  10000000.0 /)  ! dissipation estimate for SKEB
 #ifdef SW_DYNAMICS
-    psrange = (/.01, 1.e7 /)
+    psrange   = (/.01, 1.e7 /)
+    psavrange = (/.00, 1.e7 /)
 #else
-    psrange = (/40000.0, 110000.0/)
+    psrange   = (/40000.0, 110000.0/)
+    psavrange = (/0.0, 110000.0/)
 #endif
 
     ginv = 1./GRAV
@@ -621,6 +623,13 @@ contains
 !-------------------
        id_ps = register_diag_field ( trim(field), 'ps', axes(1:2), Time,           &
             'surface pressure', 'Pa', missing_value=missing_value, range=psrange)
+
+!-------------------
+! Time-averaged surface pressure
+!-------------------
+       id_ps_av = register_diag_field ( trim(field), 'ps_av', axes(1:2), Time,           &
+            'surface pressure', 'Pa', missing_value=missing_value, range=psavrange)
+
 
 !-------------------
 ! Mountain torque
@@ -1841,7 +1850,8 @@ contains
        if(id_zsurf_t > 0)  used=send_data(id_zsurf_t, zsurf, Time)
        call prt_mxm('ZS', zsurf,     isc, iec, jsc, jec, 0,   1, 1.0, Atm(n)%gridstruct%area_64, Atm(n)%domain, PRT_LEVEL_1)
 #endif
-       if(id_ps > 0) used=send_data(id_ps, Atm(n)%ps(isc:iec,jsc:jec), Time)
+       if(id_ps    > 0) used=send_data(id_ps   , Atm(n)%ps   (isc:iec,jsc:jec), Time)
+       if(id_ps_av > 0) used=send_data(id_ps_av, Atm(n)%ps_av(isc:iec,jsc:jec), Time)
 
        if (Atm(n)%flagstruct%do_inline_mp) then
           if(id_pret > 0) used=send_data(id_pret, &
