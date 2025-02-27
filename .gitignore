@@ -1,1 +1,3 @@
 *out
+*pycache*
+*.ipynb_checkpoints*
