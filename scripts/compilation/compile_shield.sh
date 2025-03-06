@@ -2,7 +2,7 @@
 # Script to compile SHiELD
 
 if [ "$#" -ne 3 ]; then
-  echo "Usage: ./compile_shield.sh COMP"
+  echo "Usage: ./compile_shield.sh COMP clean mode"
   echo "choices for COMP :  debug, repro, prod"
   echo "choices for clean:  noclean, clean, cleanall"
   echo "choices for mode :  32bit, 64bit"
