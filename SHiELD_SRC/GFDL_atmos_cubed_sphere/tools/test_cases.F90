@@ -40,7 +40,7 @@
       use fv_eta_mod,        only: compute_dz_L32, compute_dz_L101, set_hybrid_z, gw_1d,   &
                                    hybrid_z_dz
 
-      use mpp_mod,           only: mpp_error, FATAL, mpp_root_pe, mpp_broadcast, mpp_sum, mpp_sync
+      use mpp_mod,           only: mpp_error, FATAL, mpp_root_pe, mpp_broadcast, mpp_sum, mpp_sync,  mpp_send, mpp_recv, mpp_npes
       use mpp_mod,           only: stdlog, input_nml_file
       use fms_mod,           only: check_nml_error
       use mpp_domains_mod,   only: mpp_update_domains, domain2d
@@ -195,6 +195,7 @@
       public :: init_double_periodic
       public :: checker_tracers
       public :: radius, omega, small_earth_scale, w_forcing
+      public :: error_cosine_bell 
 
   INTERFACE mp_update_dwinds
      MODULE PROCEDURE mp_update_dwinds_2d
@@ -927,19 +928,11 @@
          Ubar = (2.0*pi*radius)/(12.0*86400.0)
          gh0  = 1.0
          phis = 0.0
-         r0 = radius/3. !RADIUS radius/3.
-         p1(1) = pi/2. + pi_shift
-         p1(2) = 0.
          do j=jsd,jed
             do i=isd,ied
                p2(1) = agrid(i,j,1)
                p2(2) = agrid(i,j,2)
-               r = great_circle_dist( p1, p2, radius )
-               if (r < r0) then
-                  delp(i,j,1) = phis(i,j) + gh0*0.5*(1.0+cos(PI*r/r0))
-               else
-                  delp(i,j,1) = phis(i,j)
-               endif
+               call compute_cosine_bell(delp(i,j,1), p2(1), p2(2), 0.0)
             enddo
          enddo
          initWindsCase=initWindsCase1
@@ -8543,5 +8536,353 @@ end subroutine terminator_tracers
    enddo
 
  end subroutine sm1_edge
+
+subroutine error_cosine_bell(bd, delp, flagstruct, gridstruct, domain, time, init_step_atmos)
+   !--------------------------------------------------
+   ! Compute the error of the cosine bell test
+   !--------------------------------------------------
+   type(fv_grid_bounds_type), intent(IN) :: bd
+   real ,      intent(INOUT) ::   delp(bd%isd:bd%ied,bd%jsd:bd%jed  )
+   type(fv_flags_type), target, intent(IN) :: flagstruct
+   type(fv_grid_type), intent(INOUT), target :: gridstruct
+   type(domain2d), intent(INOUT) :: domain
+
+   real :: delp_exact(bd%isd:bd%ied  ,bd%jsd:bd%jed)
+   real :: delp_error(bd%isd:bd%ied  ,bd%jsd:bd%jed)
+   real, pointer, dimension(:,:,:)   :: agrid
+   real, pointer, dimension(:,:)   :: area
+   real, intent(in)  ::   time
+   logical, intent(in) :: init_step_atmos
+
+   ! aux vars
+   real(kind=R_GRID) :: lat, lon
+
+   ! bounds
+   integer :: i, j
+   integer :: is, ie, js, je
+
+   real :: hlinf_error, hlinf_norm
+   real :: hl1_error, hl1_norm
+   real :: hl2_error, hl2_norm
+   integer :: master, nprocs
+   character (len=128):: filename_error ! filename output
+
+   is  = bd%is
+   ie  = bd%ie
+   js  = bd%js
+   je  = bd%je
+
+   agrid => gridstruct%agrid
+   area  => gridstruct%area
+
+   do j = js, je
+      do i = is, ie
+         lon = agrid(i,j,1)
+         lat = agrid(i,j,2)
+         call compute_cosine_bell(delp_exact(i,j), lon, lat, time)
+         delp_error(i,j) = abs(delp_exact(i,j)-delp(i,j))
+      enddo
+   enddo
+
+   ! get norms
+   call calc_norms(delp_exact, hlinf_norm , hl1_norm , hl2_norm , bd, gridstruct)
+   call calc_norms(delp_error, hlinf_error, hl1_error, hl2_error, bd, gridstruct)
+
+   ! relative errors
+   !hlinf_error = hlinf_error/hlinf_norm
+   hl1_error = hl1_error/hl1_norm
+   hl2_error = hl2_error/hl2_norm
+
+   master = mpp_root_pe()
+   if (mpp_pe()==master) then
+      filename_error = "error_delp.txt"
+      ! open the file
+      if(init_step_atmos) then
+         open(59, file=filename_error, status='replace')
+      else
+         open(59, file=filename_error, status='old', position='append')
+      endif
+      write(59,*) hlinf_error, hl1_error, hl2_error
+      !print*, 'error',hlinf_error, hl1_error, hl2_error
+      close(59)
+   endif
+end subroutine error_cosine_bell
+
+
+subroutine compute_cosine_bell(delp, lon, lat, time)
+    !--------------------------------------------------
+    ! Compute initial cosine bell
+    !--------------------------------------------------
+    real, intent(out):: delp
+    real(kind=R_GRID), intent(in):: lat, lon
+    real, intent(in):: time
+    real(kind=R_GRID) :: e(3), ec(3), rot_e(3)
+    real(kind=R_GRID) :: X0, Y0, Z0
+    real(kind=R_GRID) :: rotX, rotY, rotZ
+    real(kind=R_GRID) :: ws, wt, Ubar, T
+    real(kind=R_GRID) :: cosa, cos2a, sina, sin2a, coswt, sinwt
+    real(kind=R_GRID) :: p(2), pc(2), rot_p(2), r, r0
+    real(kind=R_GRID) :: lon0, lat0, rlat, rlon
+
+    ! Period
+    T = 12.0*86400.0
+    Ubar = (2.0*pi*radius)/T
+
+    ! get cartesian coordinates
+    p(1) = lon
+    p(2) = lat
+    call latlon2xyz(p, e)
+
+    ! Rotation parameters
+    ws = -Ubar/radius
+    wt = ws*time
+    cosa  = cos(alpha)
+    cos2a = cosa*cosa
+    sina  = sin(alpha)
+    sin2a = sina*sina
+    coswt = cos(wt)
+    sinwt = sin(wt)
+
+    ! apply the rotation matrix
+    rot_e(1) = (coswt*cos2a+sin2a)*e(1) -sinwt*cosa*e(2) + (coswt*cosa*sina-cosa*sina)*e(3)
+    rot_e(2) =  sinwt*cosa*e(1) + coswt*e(2) + sina*sinwt*e(3)
+    rot_e(3) = (coswt*sina*cosa-sina*cosa)*e(1) -sinwt*sina*e(2) + (coswt*sin2a+cos2a)*e(3)
+
+    ! cosine bell
+    ! test parameters
+    pc(1) = pi*0.25
+    pc(2) = pi*0.5 - acos(1.0/sqrt(3.0))
+    !pc(1) = 0.0
+    !pc(2) = 0.0
+ 
+    r0 = radius/3. !RADIUS radius/3.
+
+    ! convert rot_e to latlon
+    call cart_to_latlon(1, rot_e, rot_p(1), rot_p(2))
+
+    lon0 = pc(1)
+    lat0 = pc(2)
+    rlon = rot_p(1)
+    rlat = rot_p(2)
+
+    ! compute distance
+    r = great_circle_dist( rot_p, pc, radius )
+    r = 2.0*radius*asin(sqrt(sin((rlat-lat0)/2)**2 + cos(rlat)*cos(lat0)*sin((rlon-lon0)/2.)**2 ))
+    if (r < r0) then
+       delp = 0.5+0.5*(1.+cos(PI*r/r0))
+    else
+       delp = 0.5
+    endif
+    delp = delp*grav
+
+end subroutine compute_cosine_bell
+
+
+subroutine calc_norms(q, linf_q, l1_q, l2_q, bd, gridstruct)
+      !--------------------------------------------------
+      type(fv_grid_bounds_type), intent(IN) :: bd
+      type(fv_grid_type), intent(INOUT), target :: gridstruct
+      real,  intent(INOUT) :: q(bd%isd:bd%ied,bd%jsd:bd%jed)
+      real, intent(out)::   linf_q, l1_q, l2_q
+      real qmax, gmean
+      integer :: i, j
+
+      !qmax = q(is,js)
+      !gmean = 0.
+
+      !do j=js,je
+      !   do i=is,ie
+      !      if( q(i,j) > qmax ) then
+      !          qmax = q(i,j)
+      !      endif
+      !    enddo
+      !enddo
+      call calc_linf_norm(linf_q, q, bd, 0, 0)
+      call calc_l1_norm  (l1_q  , q, bd, gridstruct, 0, 0)
+      call calc_l2_norm  (l2_q  , q, bd, gridstruct, 0, 0)
+
+      !call mp_reduce_max(qmax)
+
+     ! gmean = g_sum(domain, q(is:ie,js:je), is, ie, js, je, 3, area, 1)
+
+
+end subroutine calc_norms
+
+
+subroutine calc_linf_norm(linfnorm, field, bd, istag, jstag)
+   !--------------------------------------------------
+   ! Compute the linf norm
+   !--------------------------------------------------
+   type(fv_grid_bounds_type), intent(IN) :: bd
+   integer, intent(IN) :: istag, jstag
+   real,  intent(INOUT) :: field(bd%isd:bd%ied+istag,bd%jsd:bd%jed+jstag)
+   real,  intent(INOUT) :: linfnorm
+
+   ! bounds
+   integer :: i, j
+   integer :: is, ie, js, je
+
+   real, allocatable :: linf_norms (:)
+   real :: linf_norm(1)
+   integer :: master, nprocs
+
+   is  = bd%is
+   ie  = bd%ie
+   js  = bd%js
+   je  = bd%je
+
+   linf_norm  = maxval(abs(field(is:ie,js:je)))
+
+   ! Get maximum among all processes
+   master = mpp_root_pe()
+   nprocs = mpp_npes()
+   if (mpp_pe()==master) then
+      allocate(linf_norms (0:nprocs-1))
+      linf_norms(master) = linf_norm(1)
+      do i = 0, nprocs-1
+         if(i .ne. master )then
+            call mpp_recv(linf_norm , size(linf_norm ) , from_pe=i)
+            linf_norms(i) = linf_norm(1)
+         endif
+      enddo
+      linf_norm(1) = maxval(linf_norms)
+      deallocate(linf_norms)
+
+      ! send the norm to other processes
+      do i = 0, nprocs-1
+         if(i .ne. master )then
+            call mpp_send(linf_norm , size(linf_norm ) , to_pe=i)
+         endif
+      enddo
+ 
+   else
+      call mpp_send(linf_norm , size(linf_norm ) , to_pe=master)
+      call mpp_recv(linf_norm , size(linf_norm ) , from_pe=master)
+   endif
+   linfnorm = linf_norm(1)
+end subroutine calc_linf_norm
+
+
+subroutine calc_l1_norm(l1norm, field, bd, gridstruct, istag, jstag)
+   !--------------------------------------------------
+   ! Compute the l1 norm
+   !--------------------------------------------------
+   type(fv_grid_bounds_type), intent(IN) :: bd
+   integer, intent(IN) :: istag, jstag
+   type(fv_grid_type), intent(INOUT), target :: gridstruct
+   real,  intent(INOUT) :: field(bd%isd:bd%ied+istag,bd%jsd:bd%jed+jstag)
+   real,  intent(INOUT) :: l1norm
+
+   ! bounds
+   integer :: i, j
+   integer :: is, ie, js, je
+
+   real, allocatable :: l1_norms (:)
+   real :: l1_norm(1)
+   integer :: master, nprocs
+
+   is  = bd%is
+   ie  = bd%ie
+   js  = bd%js
+   je  = bd%je
+
+   ! Compute local L1 norm
+   l1_norm = 0.0
+   do j = js, je
+      do i = is, ie
+         l1_norm = l1_norm+field(i,j)*gridstruct%area(i,j)
+      enddo
+   enddo
+
+   ! Get global L1 norm
+   master = mpp_root_pe()
+   nprocs = mpp_npes()
+   if (mpp_pe()==master) then
+      allocate(l1_norms (0:nprocs-1))
+      l1_norms(master) = l1_norm(1)
+      do i = 0, nprocs-1
+         if(i .ne. master )then
+            call mpp_recv(l1_norm , size(l1_norm ) , from_pe=i)
+            l1_norms(i) = l1_norm(1)
+         endif
+      enddo
+      l1_norm(1) = sum(l1_norms)
+      deallocate(l1_norms)
+
+      ! send the norm to other processes
+      do i = 0, nprocs-1
+         if(i .ne. master )then
+            call mpp_send(l1_norm , size(l1_norm ) , to_pe=i)
+         endif
+      enddo
+ 
+   else
+      call mpp_send(l1_norm , size(l1_norm ) , to_pe=master)
+      call mpp_recv(l1_norm , size(l1_norm ) , from_pe=master)
+   endif
+   l1norm = l1_norm(1)
+end subroutine calc_l1_norm
+
+
+subroutine calc_l2_norm(l2norm, field, bd, gridstruct, istag, jstag)
+   !--------------------------------------------------
+   ! Compute the l2 norm
+   !--------------------------------------------------
+   type(fv_grid_bounds_type), intent(IN) :: bd
+   integer, intent(IN) :: istag, jstag
+   type(fv_grid_type), intent(INOUT), target :: gridstruct
+   real :: field(bd%isd:bd%ied+istag,bd%jsd:bd%jed+jstag)
+   real :: l2norm
+
+   ! bounds
+   integer :: i, j
+   integer :: is, ie, js, je
+
+   real, allocatable :: l2_norms (:)
+   real :: l2_norm(1)
+   integer :: master, nprocs
+
+   is  = bd%is
+   ie  = bd%ie
+   js  = bd%js
+   je  = bd%je
+
+   ! Compute square of local L2 norm
+   l2_norm = 0.0
+   do j = js, je
+      do i = is, ie
+         l2_norm = l2_norm+field(i,j)*field(i,j)*gridstruct%area(i,j)
+      enddo
+   enddo
+
+   ! Get global L2 norm
+   master = mpp_root_pe()
+   nprocs = mpp_npes()
+   if (mpp_pe()==master) then
+      allocate(l2_norms (0:nprocs-1))
+      l2_norms(master) = l2_norm(1)
+      do i = 0, nprocs-1
+         if(i .ne. master )then
+            call mpp_recv(l2_norm , size(l2_norm ) , from_pe=i)
+            l2_norms(i) = l2_norm(1)
+         endif
+      enddo
+      l2_norm(1) = sqrt(sum(l2_norms))
+      deallocate(l2_norms)
+
+      ! send the norm to other processes
+      do i = 0, nprocs-1
+         if(i .ne. master )then
+            call mpp_send(l2_norm , size(l2_norm ) , to_pe=i)
+         endif
+      enddo
+ 
+   else
+      call mpp_send(l2_norm , size(l2_norm ) , to_pe=master)
+      call mpp_recv(l2_norm , size(l2_norm ) , from_pe=master)
+   endif
+   l2norm = l2_norm(1)
+end subroutine calc_l2_norm
+
 
 end module test_cases_mod

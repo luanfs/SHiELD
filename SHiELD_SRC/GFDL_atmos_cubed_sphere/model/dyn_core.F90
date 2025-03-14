@@ -60,7 +60,7 @@ module dyn_core_mod
   use fv_regional_mod,      only: delz_regBC ! TEMPORARY --- lmh
 
 #ifdef SW_DYNAMICS
-  use test_cases_mod,      only: test_case, case9_forcing1, case9_forcing2
+  use test_cases_mod,      only: test_case, case9_forcing1, case9_forcing2, error_cosine_bell
 #endif
   use test_cases_mod,      only: w_forcing
   use w_forcing_mod,       only: do_w_forcing
@@ -200,6 +200,7 @@ contains
     real    :: reg_bc_update_time
     logical :: last_step, remap_step
     logical used
+    logical :: init_step_atmos
     real :: split_timestep_bc
 
     integer :: is,  ie,  js,  je
@@ -1285,6 +1286,16 @@ contains
 !-----------------------------------------------------
   enddo   ! time split loop
 !-----------------------------------------------------
+#ifdef SW_DYNAMICS
+      init_step_atmos = time_total==bdt
+      if (test_case==1) then
+         call error_cosine_bell(bd, delp, flagstruct, gridstruct, domain, time_total, init_step_atmos)
+      else if(test_case==2)then
+         !call error_divwind110(bd, delp, flagstruct, gridstruct, domain, time_total, init_step_atmos)
+      endif
+#endif
+
+
     if ( nq > 0 .and. .not. flagstruct%inline_q ) then
        call timing_on('COMM_TOTAL')
        call timing_on('COMM_TRACER')
