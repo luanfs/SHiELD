@@ -191,7 +191,7 @@ contains
 #endif
     logical :: exists
     integer :: nlunit, ios
-
+    logical :: init=.true.
     real, allocatable :: dx(:,:), dy(:,:)
 
     call write_version_number ( 'FV_DIAGNOSTICS_MOD', version )
@@ -1509,7 +1509,7 @@ contains
 
 
     call prt_mass(npz, Atm(n)%ncnst, isc, iec, jsc, jec, Atm(n)%ng, Atm(n)%flagstruct%nwat,    &
-                      Atm(n)%ps, Atm(n)%delp, Atm(n)%q, Atm(n)%gridstruct%area_64, Atm(n)%domain)
+                      Atm(n)%ps, Atm(n)%delp, Atm(n)%q, Atm(n)%gridstruct%area_64, Atm(n)%domain, init=init)
 
     !Model initialization time (not necessarily the time this simulation is started,
     ! conceivably a restart could be done
@@ -1621,6 +1621,7 @@ contains
     logical :: do_cs_intp
     logical :: used
     logical :: bad_range
+    logical :: init=.false.
     integer i,j,k, yr, mon, dd, hr, mn, days, seconds, nq, theta_d
     character(len=128)   :: tname
     real, parameter:: ws_0 = 16.   ! minimum max_wind_speed within the 7x7 search box
@@ -1721,7 +1722,7 @@ contains
 
 
         call prt_mass(npz, nq, isc, iec, jsc, jec, ngc, Atm(n)%flagstruct%nwat,    &
-                      Atm(n)%ps, Atm(n)%delp, Atm(n)%q, Atm(n)%gridstruct%area_64, Atm(n)%domain)
+                      Atm(n)%ps, Atm(n)%delp, Atm(n)%q, Atm(n)%gridstruct%area_64, Atm(n)%domain, init=init)
 
         !call prt_mxm('ZS (m) ', zsurf,     isc, iec, jsc, jec, 0,   1, 1.0, Atm(n)%gridstruct%area_64, Atm(n)%domain)
         call prt_mxm('PS (Pa) ', Atm(n)%ps, isc, iec, jsc, jec, ngc, 1, 0.01, Atm(n)%gridstruct%area_64, Atm(n)%domain, PRT_LEVEL_1)
@@ -4324,7 +4325,7 @@ contains
 
  !Added nwat == 1 case for water vapor diagnostics
  subroutine prt_mass(km, nq, is, ie, js, je, n_g, nwat, ps, delp, q, &
-                     area, domain, prt_level_in)
+                     area, domain, init, prt_level_in)
 
  integer, intent(in):: is, ie, js, je
  integer, intent(in):: nq, n_g, km, nwat
@@ -4333,6 +4334,7 @@ contains
  real, intent(in)::  q(is-n_g:ie+n_g, js-n_g:je+n_g, km, nq)
  real(kind=R_GRID), intent(IN):: area(is-n_g:ie+n_g,js-n_g:je+n_g)
  type(domain2d), intent(INOUT) :: domain
+ logical, intent(in), OPTIONAL ::  init
  integer, intent(in), OPTIONAL ::  prt_level_in
 ! Local:
  real psq(is:ie,js:je,nq), psqv(is:ie,js:je)
@@ -4341,6 +4343,7 @@ contains
  real psmo, totw, psdry
  integer k, n, kstrat
  integer ::  prt_level = 1
+ character (len=128):: filename_mass
 
  if (present(prt_level_in)) prt_level = prt_level_in
  if (prt_level <= PRT_LEVEL_0) return
@@ -4360,6 +4363,19 @@ contains
       psmo = g_sum(domain, ps(is:ie,js:je), is, ie, js, je, n_g, area, 1)
       if( master ) write(*,*) '    Total surface pressure (mb)', trim(gn), ' = ',  0.01*psmo
       call z_sum(is, ie, js, je, km, n_g, delp, q(is-n_g,js-n_g,1,1  ), psqv(is,js))
+
+      if (master .and. present(init)) then
+         filename_mass = "mass.txt"
+         ! open the file
+         if(init) then
+            open(64, file=filename_mass, status='replace')
+            psmo = psmo/grav
+         else
+            open(64, file=filename_mass, status='old', position='append')
+         endif
+         write(64,*) psmo, psdry
+         close(64)
+      endif
       return
  endif
 
@@ -4409,6 +4425,18 @@ contains
 
  totw  = sum(qtot(1:nwat))
  psdry = psmo - totw
+
+ if (master .and. present(init)) then
+    filename_mass = "mass.txt"
+    ! open the file
+    if(init) then
+       open(64, file=filename_mass, status='replace')
+    else
+       open(64, file=filename_mass, status='old', position='append')
+    endif
+    write(64,*) psmo, psdry
+    close(64)
+ endif
 
  if( master ) then
      write(*,*) '    Total Surface Pressure (mb)   ', trim(gn), ' = ',  0.01*psmo
