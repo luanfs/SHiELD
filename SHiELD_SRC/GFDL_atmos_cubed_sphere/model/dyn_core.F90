@@ -60,7 +60,7 @@ module dyn_core_mod
   use fv_regional_mod,      only: delz_regBC ! TEMPORARY --- lmh
 
 #ifdef SW_DYNAMICS
-  use test_cases_mod,      only: test_case, case9_forcing1, case9_forcing2, error_cosine_bell
+  use test_cases_mod,      only: test_case, case9_forcing1, case9_forcing2, error_cosine_bell, error_tc2
 #endif
   use test_cases_mod,      only: w_forcing
   use w_forcing_mod,       only: do_w_forcing
@@ -165,6 +165,10 @@ contains
     type(fv_diag_type),  intent(IN)            :: idiag
     type(domain2d),      intent(INOUT)         :: domain
 
+    real, allocatable,  SAVE :: u0   (:,:)  ! IC - D grid zonal wind (m/s)
+    real, allocatable,  SAVE :: v0   (:,:)  ! IC - D grid meridional wind (m/s)
+    real, allocatable,  SAVE :: delp0(:,:)  ! IC - pressure thickness (pascal)
+ 
     real, allocatable, dimension(:,:,:):: pem
 ! Auto 1D & 2D arrays:
     real, dimension(bd%isd:bd%ied,bd%jsd:bd%jed):: ws3, z_rat
@@ -214,6 +218,20 @@ contains
       ied = bd%ied
       jsd = bd%jsd
       jed = bd%jed
+
+#ifdef SW_DYNAMICS
+    ! store ICs
+    init_step_atmos = time_total==bdt
+    if (init_step_atmos) then
+        allocate(u0(bd%isd:bd%ied  ,bd%jsd:bd%jed+1))
+        allocate(v0(bd%isd:bd%ied+1,bd%jsd:bd%jed  ))
+        allocate(delp0(bd%isd:bd%ied  ,bd%jsd:bd%jed  ))
+        delp0(is:ie  ,js:je  ) = delp(is:ie  ,js:je  ,1)
+        u0(is:ie  ,js:je+1) =    u(is:ie  ,js:je+1,1)
+        v0(is:ie+1,js:je  ) =    v(is:ie+1,js:je  ,1)
+    endif
+#endif
+
 
 #ifdef SW_DYNAMICS
     peln1 = 0.
@@ -1291,7 +1309,7 @@ contains
       if (test_case==1) then
          call error_cosine_bell(bd, delp, flagstruct, gridstruct, domain, time_total, init_step_atmos)
       else if(test_case==2)then
-         !call error_divwind110(bd, delp, flagstruct, gridstruct, domain, time_total, init_step_atmos)
+         call error_tc2(bd, delp, u, v, delp0, u0, v0, flagstruct, gridstruct, domain, init_step_atmos)
       endif
 #endif
 
