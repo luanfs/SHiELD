@@ -197,6 +197,7 @@
       public :: radius, omega, small_earth_scale, w_forcing
       public :: error_cosine_bell 
       public :: error_tc2 
+      public :: vort_output
 
   INTERFACE mp_update_dwinds
      MODULE PROCEDURE mp_update_dwinds_2d
@@ -8565,7 +8566,7 @@ subroutine error_cosine_bell(bd, delp, flagstruct, gridstruct, domain, time, ini
    real :: hlinf_error, hlinf_norm
    real :: hl1_error, hl1_norm
    real :: hl2_error, hl2_norm
-   integer :: master, nprocs
+   integer :: master
    character (len=128):: filename_error ! filename output
 
    is  = bd%is
@@ -8630,9 +8631,6 @@ subroutine error_tc2(bd, delp, u, v, delp0, u0, v0, flagstruct, gridstruct, doma
    real, pointer, dimension(:,:)   :: area
    logical, intent(in) :: init_step_atmos
 
-   ! aux vars
-   real(kind=R_GRID) :: lat, lon
-
    ! bounds
    integer :: i, j
    integer :: is, ie, js, je
@@ -8640,7 +8638,7 @@ subroutine error_tc2(bd, delp, u, v, delp0, u0, v0, flagstruct, gridstruct, doma
    real :: hlinf_error, hlinf_norm
    real :: hl1_error, hl1_norm
    real :: hl2_error, hl2_norm
-   integer :: master, nprocs
+   integer :: master
    character (len=128):: filename_error ! filename output
 
    is  = bd%is
@@ -8679,6 +8677,59 @@ subroutine error_tc2(bd, delp, u, v, delp0, u0, v0, flagstruct, gridstruct, doma
       close(59)
    endif
 end subroutine error_tc2
+
+subroutine vort_output(bd, u, v, gridstruct, init_step_atmos)
+   !--------------------------------------------------
+   ! Compute the maximum vorticity
+   !--------------------------------------------------
+   type(fv_grid_bounds_type), intent(IN) :: bd
+   real ,      intent(INOUT) ::   u(bd%isd:bd%ied  ,bd%jsd:bd%jed+1)
+   real ,      intent(INOUT) ::   v(bd%isd:bd%ied+1,bd%jsd:bd%jed  )
+   real :: vort(bd%isd:bd%ied, bd%jsd:bd%jed)
+   logical, intent(in) :: init_step_atmos
+   type(fv_grid_type), intent(INOUT), target :: gridstruct
+   real, pointer, dimension(:,:) :: rarea
+   real, pointer, dimension(:,:) :: dx,dy
+
+
+   ! bounds
+   integer :: i, j
+   integer :: is, ie, js, je
+   integer :: isd, ied, jsd, jed
+   integer :: master
+   real :: vort_max
+   character (len=128):: filename_error ! filename output
+
+   is  = bd%is
+   ie  = bd%ie
+   js  = bd%js
+   je  = bd%je
+
+   isd  = bd%isd
+   ied  = bd%ied
+   jsd  = bd%jsd
+   jed  = bd%jed
+
+   rarea => gridstruct%rarea
+   dx => gridstruct%dx
+   dy => gridstruct%dy
+
+   call get_vorticity(is, ie, js, je, isd, ied, jsd, jed, 1, u, v, vort(is:ie,js:je), dx, dy, rarea)
+   call calc_max(vort_max, vort, bd, 0, 0)
+
+   master = mpp_root_pe()
+   if (mpp_pe()==master) then
+      filename_error = "vort_max.txt"
+      ! open the file
+      if(init_step_atmos) then
+         open(59, file=filename_error, status='replace')
+      else
+         open(59, file=filename_error, status='old', position='append')
+      endif
+      write(59,*) vort_max
+      close(59)
+   endif
+end subroutine vort_output
 
 
 subroutine compute_cosine_bell(delp, lon, lat, time)
@@ -8767,6 +8818,39 @@ subroutine calc_norms(q, linf_q, l1_q, l2_q, bd, gridstruct, domain)
 
 
 end subroutine calc_norms
+
+subroutine calc_max(qmax, q, bd, istag, jstag)
+   !--------------------------------------------------
+   ! Compute the maximum of q
+   !--------------------------------------------------
+   type(fv_grid_bounds_type), intent(IN) :: bd
+   integer, intent(IN) :: istag, jstag
+   real,  intent(IN) :: q(bd%isd:bd%ied+istag,bd%jsd:bd%jed+jstag)
+   real,  intent(INOUT) :: qmax
+
+   ! bounds
+   integer :: i, j
+   integer :: is, ie, js, je
+
+   is  = bd%is
+   ie  = bd%ie
+   js  = bd%js
+   je  = bd%je
+
+   qmax = q(is,js)
+
+   do j=js,je
+      do i=is,ie
+         if( q(i,j) > qmax) then
+             qmax = q(i,j)
+         endif
+       enddo
+   enddo
+
+   call mp_reduce_max(qmax)
+
+end subroutine calc_max
+
 
 
 subroutine calc_linf_norm(linfnorm, q, bd, istag, jstag)

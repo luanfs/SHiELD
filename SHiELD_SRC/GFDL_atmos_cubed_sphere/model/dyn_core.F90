@@ -60,7 +60,8 @@ module dyn_core_mod
   use fv_regional_mod,      only: delz_regBC ! TEMPORARY --- lmh
 
 #ifdef SW_DYNAMICS
-  use test_cases_mod,      only: test_case, case9_forcing1, case9_forcing2, error_cosine_bell, error_tc2
+  use test_cases_mod,      only: test_case, case9_forcing1, case9_forcing2
+  use test_cases_mod,      only: error_cosine_bell, error_tc2, vort_output
 #endif
   use test_cases_mod,      only: w_forcing
   use w_forcing_mod,       only: do_w_forcing
@@ -219,9 +220,9 @@ contains
       jsd = bd%jsd
       jed = bd%jed
 
+      init_step_atmos = time_total==bdt
 #ifdef SW_DYNAMICS
     ! store ICs
-    init_step_atmos = time_total==bdt
     if (init_step_atmos) then
         allocate(u0(bd%isd:bd%ied  ,bd%jsd:bd%jed+1))
         allocate(v0(bd%isd:bd%ied+1,bd%jsd:bd%jed  ))
@@ -1310,6 +1311,8 @@ contains
          call error_cosine_bell(bd, delp, flagstruct, gridstruct, domain, time_total, init_step_atmos)
       else if(test_case==2)then
          call error_tc2(bd, delp, u, v, delp0, u0, v0, flagstruct, gridstruct, domain, init_step_atmos)
+      else if(test_case==8)then ! modons
+         call vort_output(bd, u, v, gridstruct, init_step_atmos)
       endif
 #endif
 
