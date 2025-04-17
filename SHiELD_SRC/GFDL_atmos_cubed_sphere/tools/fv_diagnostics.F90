@@ -510,8 +510,8 @@ contains
 
        if (id_zsurf > 0) then
           used = send_data(id_zsurf, zsurf, Time)
-          call prt_mxm('ZS', zsurf, isc, iec, jsc, jec, 0,   1, 1.0, &
-               Atm(n)%gridstruct%area_64, Atm(n)%domain,PRT_LEVEL_0)
+          !call prt_mxm('ZS', zsurf, isc, iec, jsc, jec, 0,   1, 1.0, &
+          !     Atm(n)%gridstruct%area_64, Atm(n)%domain,PRT_LEVEL_0)
        endif
 
        if ( Atm(n)%flagstruct%fv_land ) then
@@ -1849,7 +1849,7 @@ contains
        enddo
 
        if(id_zsurf_t > 0)  used=send_data(id_zsurf_t, zsurf, Time)
-       call prt_mxm('ZS', zsurf,     isc, iec, jsc, jec, 0,   1, 1.0, Atm(n)%gridstruct%area_64, Atm(n)%domain, PRT_LEVEL_1)
+       !call prt_mxm('ZS', zsurf,     isc, iec, jsc, jec, 0,   1, 1.0, Atm(n)%gridstruct%area_64, Atm(n)%domain, PRT_LEVEL_1)
 #endif
        if(id_ps    > 0) used=send_data(id_ps   , Atm(n)%ps   (isc:iec,jsc:jec), Time)
        if(id_ps_av > 0) used=send_data(id_ps_av, Atm(n)%ps_av(isc:iec,jsc:jec), Time)
@@ -4431,6 +4431,7 @@ contains
     ! open the file
     if(init) then
        open(64, file=filename_mass, status='replace')
+       psmo = psmo/grav
     else
        open(64, file=filename_mass, status='old', position='append')
     endif
