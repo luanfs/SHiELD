@@ -30,7 +30,7 @@
       use init_hydro_mod,    only: p_var, hydro_eq, hydro_eq_ext
       use fv_mp_mod,         only: is_master,        &
                                    domain_decomp, fill_corners, XDir, YDir, &
-                                   mp_stop, mp_reduce_sum, mp_reduce_max, mp_gather
+                                   mp_stop, mp_reduce_sum, mp_reduce_max, mp_reduce_min, mp_gather
       use fv_grid_utils_mod, only: great_circle_dist, mid_pt_sphere,    &
                                    ptop_min, inner_prod, get_latlon_vector, get_unit_vect2, &
                                    g_sum, latlon2xyz, cart_to_latlon, make_eta_level, f_p, project_sphere_v
@@ -8678,7 +8678,7 @@ subroutine error_tc2(bd, delp, u, v, delp0, u0, v0, flagstruct, gridstruct, doma
    endif
 end subroutine error_tc2
 
-subroutine vort_output(bd, u, v, gridstruct, init_step_atmos)
+subroutine vort_output(bd, u, v, gridstruct, init_step_atmos, domain)
    !--------------------------------------------------
    ! Compute the maximum vorticity
    !--------------------------------------------------
@@ -8688,6 +8688,7 @@ subroutine vort_output(bd, u, v, gridstruct, init_step_atmos)
    real :: vort(bd%isd:bd%ied, bd%jsd:bd%jed)
    logical, intent(in) :: init_step_atmos
    type(fv_grid_type), intent(INOUT), target :: gridstruct
+   type(domain2d), intent(INOUT) :: domain
    real, pointer, dimension(:,:) :: rarea
    real, pointer, dimension(:,:) :: dx,dy
 
@@ -8697,8 +8698,8 @@ subroutine vort_output(bd, u, v, gridstruct, init_step_atmos)
    integer :: is, ie, js, je
    integer :: isd, ied, jsd, jed
    integer :: master
-   real :: vort_max
-   character (len=128):: filename_error ! filename output
+   real :: vort_max, vort_min, vort_l2
+   character (len=128):: filename ! filename output
 
    is  = bd%is
    ie  = bd%ie
@@ -8716,18 +8717,40 @@ subroutine vort_output(bd, u, v, gridstruct, init_step_atmos)
 
    call get_vorticity(is, ie, js, je, isd, ied, jsd, jed, 1, u, v, vort(is:ie,js:je), dx, dy, rarea)
    call calc_max(vort_max, vort, bd, 0, 0)
+   call calc_min(vort_min, vort, bd, 0, 0)
+   call calc_l2_norm(vort_l2, vort, bd, gridstruct, domain)
 
    master = mpp_root_pe()
    if (mpp_pe()==master) then
-      filename_error = "vort_max.txt"
       ! open the file
+      filename = "vort_max.txt"
       if(init_step_atmos) then
-         open(59, file=filename_error, status='replace')
+         open(59, file=filename, status='replace')
       else
-         open(59, file=filename_error, status='old', position='append')
+         open(59, file=filename, status='old', position='append')
       endif
       write(59,*) vort_max
       close(59)
+
+      ! open the file
+      filename = "vort_min.txt"
+      if(init_step_atmos) then
+         open(94, file=filename, status='replace')
+      else
+         open(94, file=filename, status='old', position='append')
+      endif
+      write(94,*) vort_min
+      close(94)
+
+      ! open the file
+      filename = "vort_l2.txt"
+      if(init_step_atmos) then
+         open(75, file=filename, status='replace')
+      else
+         open(75, file=filename, status='old', position='append')
+      endif
+      write(75,*) vort_l2
+      close(75)
    endif
 end subroutine vort_output
 
@@ -8850,6 +8873,38 @@ subroutine calc_max(qmax, q, bd, istag, jstag)
    call mp_reduce_max(qmax)
 
 end subroutine calc_max
+
+subroutine calc_min(qmin, q, bd, istag, jstag)
+   !--------------------------------------------------
+   ! Compute the minimum of q
+   !--------------------------------------------------
+   type(fv_grid_bounds_type), intent(IN) :: bd
+   integer, intent(IN) :: istag, jstag
+   real,  intent(IN) :: q(bd%isd:bd%ied+istag,bd%jsd:bd%jed+jstag)
+   real,  intent(INOUT) :: qmin
+
+   ! bounds
+   integer :: i, j
+   integer :: is, ie, js, je
+
+   is  = bd%is
+   ie  = bd%ie
+   js  = bd%js
+   je  = bd%je
+
+   qmin = q(is,js)
+
+   do j=js,je
+      do i=is,ie
+         if( q(i,j) < qmin) then
+             qmin = q(i,j)
+         endif
+       enddo
+   enddo
+
+   call mp_reduce_min(qmin)
+
+end subroutine calc_min
 
 
 

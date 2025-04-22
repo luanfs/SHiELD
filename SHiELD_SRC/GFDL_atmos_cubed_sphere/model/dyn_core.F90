@@ -1312,7 +1312,7 @@ contains
       else if(test_case==2)then
          call error_tc2(bd, delp, u, v, delp0, u0, v0, flagstruct, gridstruct, domain, init_step_atmos)
       else if(test_case==8)then ! modons
-         call vort_output(bd, u, v, gridstruct, init_step_atmos)
+         call vort_output(bd, u, v, gridstruct, init_step_atmos, domain)
       endif
 #endif
 
