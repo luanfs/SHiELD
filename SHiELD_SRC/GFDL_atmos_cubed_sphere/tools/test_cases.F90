@@ -8698,7 +8698,7 @@ subroutine vort_output(bd, u, v, gridstruct, init_step_atmos, domain)
    integer :: is, ie, js, je
    integer :: isd, ied, jsd, jed
    integer :: master
-   real :: vort_max, vort_min, vort_l2
+   real :: vort_max, vort_min, vort_global, vort_l2
    character (len=128):: filename ! filename output
 
    is  = bd%is
@@ -8718,6 +8718,7 @@ subroutine vort_output(bd, u, v, gridstruct, init_step_atmos, domain)
    call get_vorticity(is, ie, js, je, isd, ied, jsd, jed, 1, u, v, vort(is:ie,js:je), dx, dy, rarea)
    call calc_max(vort_max, vort, bd, 0, 0)
    call calc_min(vort_min, vort, bd, 0, 0)
+   call calc_global_integral(vort_global, vort, bd, gridstruct, domain)
    call calc_l2_norm(vort_l2, vort, bd, gridstruct, domain)
 
    master = mpp_root_pe()
@@ -8741,6 +8742,17 @@ subroutine vort_output(bd, u, v, gridstruct, init_step_atmos, domain)
       endif
       write(94,*) vort_min
       close(94)
+
+      ! open the file
+      filename = "vort_global.txt"
+      if(init_step_atmos) then
+         open(75, file=filename, status='replace')
+      else
+         open(75, file=filename, status='old', position='append')
+      endif
+      write(75,*) vort_global
+      close(75)
+
 
       ! open the file
       filename = "vort_l2.txt"
@@ -8813,7 +8825,7 @@ subroutine compute_cosine_bell(delp, lon, lat, time)
 
     ! compute distance
     r = great_circle_dist( rot_p, pc, radius )
-    r = 2.0*radius*asin(sqrt(sin((rlat-lat0)/2)**2 + cos(rlat)*cos(lat0)*sin((rlon-lon0)/2.)**2 ))
+    !r = 2.0*radius*asin(sqrt(sin((rlat-lat0)/2)**2 + cos(rlat)*cos(lat0)*sin((rlon-lon0)/2.)**2 ))
     if (r < r0) then
        delp = 0.5+0.5*(1.+cos(PI*r/r0))
     else
@@ -9006,6 +9018,38 @@ subroutine calc_l2_norm(l2norm, q, bd, gridstruct, domain)
 
    l2norm = g_sum(domain, q2, is, ie, js, je, 3, gridstruct%area_64, 1)
 end subroutine calc_l2_norm
+
+
+subroutine calc_global_integral(global_int, q, bd, gridstruct, domain)
+   !--------------------------------------------------
+   ! Compute the global integral of q
+   !--------------------------------------------------
+   type(fv_grid_bounds_type), intent(IN) :: bd
+   type(fv_grid_type), intent(INOUT), target :: gridstruct
+   type(domain2d), intent(INOUT) :: domain
+   real, intent(INOUT) :: q(bd%isd:bd%ied,bd%jsd:bd%jed)
+   !real, intent(OUT), :: area(bd%isd:bd%ied,bd%jsd:bd%jed)
+   real :: q1(bd%is:bd%ie,bd%js:bd%je)
+   real :: global_int
+
+   ! bounds
+   integer :: i, j
+   integer :: is, ie, js, je
+
+   is  = bd%is
+   ie  = bd%ie
+   js  = bd%js
+   je  = bd%je
+
+   ! Compute square of field
+   do j = js, je
+      do i = is, ie
+         q1(i,j) = q(i,j)
+      enddo
+   enddo
+
+   global_int = g_sum(domain, q1, is, ie, js, je, 3, gridstruct%area_64, 1)
+end subroutine calc_global_integral
 
 
 end module test_cases_mod
